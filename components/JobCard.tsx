@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { JobState, JobStatus } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import type { JobState, JobStatus, Provider } from "@/lib/types";
 
 const STATUS_LABELS: Record<JobStatus, string> = {
   queued: "In coda",
@@ -17,12 +17,34 @@ interface Props {
   job: JobState;
   disabled: boolean;
   onRemove: (id: string) => void;
+  onRetry: (id: string, provider: Provider) => void;
 }
 
-export default function JobCard({ job, disabled, onRemove }: Props) {
+export default function JobCard({ job, disabled, onRemove, onRetry }: Props) {
   const [showOriginal, setShowOriginal] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const busy = job.status === "normalizing" || job.status === "removing" || job.status === "compositing";
+  const retriable = job.status === "done" || job.status === "error" || job.status === "skipped";
   const imageUrl = job.status === "done" && job.resultUrl && !showOriginal ? job.resultUrl : job.thumbUrl;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
+
+  const retry = (provider: Provider) => {
+    setMenuOpen(false);
+    setShowOriginal(false);
+    onRetry(job.id, provider);
+  };
+
+  // the local retry alternates between the two model variants
+  const nextLocalVariant = job.localModel === "small" ? "medium" : "small";
 
   return (
     <figure className={`job-card status-${job.status}`}>
@@ -55,6 +77,33 @@ export default function JobCard({ job, disabled, onRemove }: Props) {
           <a href={job.resultUrl} download={job.outName ?? undefined} className="mini-btn" title="Scarica JPG">
             ⬇
           </a>
+        )}
+        {retriable && (
+          <div className="retry-wrap" ref={menuRef}>
+            <button
+              type="button"
+              className="mini-btn"
+              disabled={disabled}
+              title="Riprova lo scontorno di questa immagine"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              ↻
+            </button>
+            {menuOpen && (
+              <div className="retry-menu">
+                <span className="retry-title">Riprova scontorno</span>
+                <button type="button" onClick={() => retry("local")}>
+                  Locale — variante {nextLocalVariant === "small" ? "S" : "M"} (gratis)
+                </button>
+                <button type="button" onClick={() => retry("photoroom")}>
+                  PhotoRoom (~$0,02)
+                </button>
+                <button type="button" onClick={() => retry("removebg")}>
+                  remove.bg (~$0,20)
+                </button>
+              </div>
+            )}
+          </div>
         )}
         <button
           type="button"

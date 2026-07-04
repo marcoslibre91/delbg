@@ -1,4 +1,4 @@
-import type { JobState, Settings } from "../types";
+import { cutoutKeyFor, type JobState, type Settings } from "../types";
 import { normalizeImage } from "./normalize";
 import { ProviderError, removeBackgroundWith } from "./providers";
 import { compositeCutout } from "./composite";
@@ -58,8 +58,13 @@ export async function runBatch(
         cb.onJob(job.id, { status: "normalizing", error: null });
       }
 
+      const targetKey = cutoutKeyFor(settings);
+      // reuse the cached cutout when it comes from the same provider+variant,
+      // or from any provider in recomposite-only mode (color/format change)
       let cutout =
-        job.cutout && job.cutoutProvider === settings.provider ? job.cutout : null;
+        job.cutout && (job.cutoutKey === targetKey || settings.reuseAnyCutout)
+          ? job.cutout
+          : null;
       if (!cutout) {
         cb.onJob(job.id, { status: "removing" });
         for (let attempt = 1; ; attempt++) {
@@ -80,7 +85,11 @@ export async function runBatch(
             throw err;
           }
         }
-        cb.onJob(job.id, { cutout, cutoutProvider: settings.provider });
+        cb.onJob(job.id, {
+          cutout,
+          cutoutKey: targetKey,
+          localModel: settings.provider === "local" ? settings.localModel ?? "medium" : job.localModel,
+        });
       } else {
         cb.onLog("info", `${job.name}: scontorno già in cache, nessuna nuova chiamata`);
       }

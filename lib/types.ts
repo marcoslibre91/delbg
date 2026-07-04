@@ -1,5 +1,8 @@
 export type Provider = "local" | "photoroom" | "removebg";
 
+/** Variant of the in-browser model; "medium" is the default quality. */
+export type LocalModel = "small" | "medium";
+
 export type OutputFormat = "original" | "square";
 
 export interface Settings {
@@ -12,6 +15,20 @@ export interface Settings {
   parallelJobs: number;
   photoroomKey: string;
   removebgKey: string;
+  /** Variant of the local model for this run (default "medium") */
+  localModel?: LocalModel;
+  /**
+   * Recomposite-only mode: reuse each job's cached cutout whatever provider
+   * produced it (no provider calls) — used for "apply new color/format".
+   */
+  reuseAnyCutout?: boolean;
+}
+
+/** Cache key identifying which provider+variant produced a cutout. */
+export function cutoutKeyFor(settings: Settings): string {
+  return settings.provider === "local"
+    ? `local:${settings.localModel ?? "medium"}`
+    : settings.provider;
 }
 
 export type JobStatus =
@@ -35,8 +52,10 @@ export interface JobState {
   normalized: Blob | null;
   /** PNG cutout with alpha, cached so a re-run never pays the API twice */
   cutout: Blob | null;
-  /** Provider that produced the cached cutout */
-  cutoutProvider: Provider | null;
+  /** Cache key (provider or local:variant) that produced the cached cutout */
+  cutoutKey: string | null;
+  /** Local model variant used for the last local run on this job */
+  localModel: LocalModel | null;
   result: Blob | null;
   resultUrl: string | null;
   outName: string | null;

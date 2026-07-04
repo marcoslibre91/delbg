@@ -325,6 +325,50 @@ main {
   border-color: var(--muted);
 }
 
+.retry-wrap {
+  position: relative;
+}
+
+.retry-menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 10;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.16);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 210px;
+}
+
+.retry-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 8px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.retry-menu button {
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 7px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.retry-menu button:hover {
+  background: var(--accent-soft);
+}
+
 .spinner {
   width: 10px;
   height: 10px;

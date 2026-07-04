@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { JobState, LogEntry, Settings } from "@/lib/types";
+import type { JobState, LocalModel, LogEntry, Provider, Settings } from "@/lib/types";
 import { isValidHex, loadSettings, saveSettings } from "@/lib/settings";
 import { isSupportedImage, makeThumbnail } from "@/lib/pipeline/normalize";
 import { makeOutputNamer } from "@/lib/pipeline/naming";
@@ -93,7 +93,8 @@ export default function Processor() {
         error: null,
         normalized: null,
         cutout: null,
-        cutoutProvider: null,
+        cutoutKey: null,
+        localModel: null,
         result: null,
         resultUrl: null,
         outName: namerRef.current(file.name),
@@ -138,38 +139,74 @@ export default function Processor() {
     }
   }, [addFiles, addLog]);
 
-  const start = useCallback(async () => {
-    // process everything: cached cutouts make re-runs (e.g. new background color) free
-    const snapshot = [...jobs];
-    if (!snapshot.length) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setRunning(true);
-    setProgress({ done: 0, total: snapshot.length });
-    setJobs((prev) => prev.map((j) => ({ ...j, status: "queued", error: null })));
-    addLog(
-      "info",
+  const runJobs = useCallback(
+    async (snapshot: JobState[], effective: Settings, label: string) => {
+      if (!snapshot.length) return;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setRunning(true);
+      setProgress({ done: 0, total: snapshot.length });
+      const ids = new Set(snapshot.map((j) => j.id));
+      setJobs((prev) =>
+        prev.map((j) => (ids.has(j.id) ? { ...j, status: "queued", error: null } : j))
+      );
+      addLog("info", label);
+      try {
+        await runBatch(
+          snapshot,
+          effective,
+          {
+            onJob: patchJob,
+            onLog: addLog,
+            onProgress: (done, total) => setProgress({ done, total }),
+          },
+          controller.signal
+        );
+        addLog("info", "Batch completato");
+      } catch (err) {
+        addLog("error", err instanceof Error ? err.message : String(err));
+      } finally {
+        setRunning(false);
+        abortRef.current = null;
+      }
+    },
+    [addLog, patchJob]
+  );
+
+  const startPending = useCallback(() => {
+    // only images without a good result; cached cutouts are reused per provider
+    const snapshot = jobs.filter((j) => j.status !== "done");
+    void runJobs(
+      snapshot,
+      settings,
       `Batch avviato: ${snapshot.length} immagini, provider ${settings.provider}, sfondo ${settings.backgroundColor}`
     );
-    try {
-      await runBatch(
-        snapshot,
-        settings,
-        {
-          onJob: patchJob,
-          onLog: addLog,
-          onProgress: (done, total) => setProgress({ done, total }),
-        },
-        controller.signal
-      );
-      addLog("info", "Batch completato");
-    } catch (err) {
-      addLog("error", err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }, [jobs, settings, addLog, patchJob]);
+  }, [jobs, settings, runJobs]);
+
+  const reapplyAll = useCallback(() => {
+    // recomposite everything from existing cutouts: new color/format at zero cost
+    void runJobs(
+      [...jobs],
+      { ...settings, reuseAnyCutout: true },
+      `Riapplico sfondo ${settings.backgroundColor} e formato ${settings.outputFormat} a ${jobs.length} immagini (nessuna nuova chiamata)`
+    );
+  }, [jobs, settings, runJobs]);
+
+  const retryJob = useCallback(
+    (id: string, provider: Provider) => {
+      const job = jobs.find((j) => j.id === id);
+      if (!job || running) return;
+      // alternate the local model variant on every local retry
+      const localModel: LocalModel =
+        provider === "local" ? (job.localModel === "small" ? "medium" : "small") : "medium";
+      const fresh: JobState = { ...job, cutout: null, cutoutKey: null };
+      patchJob(id, { cutout: null, cutoutKey: null });
+      const detail =
+        provider === "local" ? `locale (variante ${localModel})` : provider;
+      void runJobs([fresh], { ...settings, provider, localModel }, `${job.name}: riprovo con ${detail}`);
+    },
+    [jobs, running, settings, patchJob, runJobs]
+  );
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -244,7 +281,8 @@ export default function Processor() {
 
   const doneCount = jobs.filter((j) => j.status === "done").length;
   const failedCount = jobs.filter((j) => j.status === "error" || j.status === "skipped").length;
-  const canStart = jobs.length > 0 && !running && !importing && isValidHex(settings.backgroundColor);
+  const pendingCount = jobs.length - doneCount;
+  const canRun = !running && !importing && isValidHex(settings.backgroundColor);
   const percent = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
@@ -311,9 +349,25 @@ export default function Processor() {
         {jobs.length > 0 && (
           <section className="panel">
             <div className="run-row">
-              <button type="button" className="btn primary" disabled={!canStart} onClick={() => void start()}>
-                {running ? "In corso…" : `Processa ${jobs.length} immagini`}
+              <button
+                type="button"
+                className="btn primary"
+                disabled={!canRun || pendingCount === 0}
+                onClick={startPending}
+              >
+                {running ? "In corso…" : `Processa ${pendingCount} immagini`}
               </button>
+              {doneCount > 0 && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!canRun}
+                  title="Ricompone tutte le immagini col colore/formato attuale riusando gli scontorni: nessuna nuova chiamata"
+                  onClick={reapplyAll}
+                >
+                  Riapplica colore/formato a tutte
+                </button>
+              )}
               {running && (
                 <button type="button" className="btn danger" onClick={stop}>
                   Ferma
@@ -355,7 +409,7 @@ export default function Processor() {
             )}
             <div className="job-grid">
               {jobs.map((job) => (
-                <JobCard key={job.id} job={job} disabled={running} onRemove={removeJob} />
+                <JobCard key={job.id} job={job} disabled={running} onRemove={removeJob} onRetry={retryJob} />
               ))}
             </div>
           </section>

@@ -40,6 +40,7 @@ export async function removeBackgroundWith(
     }
     return removeBackground(image, {
       publicPath,
+      model: settings.localModel ?? "medium",
       output: { format: "image/png", quality: 1 },
     });
   }
