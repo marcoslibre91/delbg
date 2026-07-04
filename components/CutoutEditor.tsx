@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JobState, Settings } from "@/lib/types";
-import { isSkin } from "@/lib/pipeline/qc";
+import { interiorHoleMask, isSkin } from "@/lib/pipeline/qc";
 
 type Tool = "wand" | "eraser" | "restore";
 
@@ -294,6 +294,33 @@ export default function CutoutEditor({ job, settings, onSave, onClose }: Props) 
     [pushUndo]
   );
 
+  /** Restore transparent regions fully enclosed by the subject (eaten interiors). */
+  const fillHoles = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d", { willReadFrequently: true });
+    const original = originalRef.current?.getContext("2d", { willReadFrequently: true });
+    if (!canvas || !ctx || !original) return;
+    pushUndo();
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const { mask, holePixels } = interiorHoleMask(img.data, canvas.width, canvas.height);
+    if (!holePixels) {
+      undoRef.current.pop();
+      setCanUndo(undoRef.current.length > 0);
+      return;
+    }
+    const source = original.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let p = 0; p < mask.length; p++) {
+      if (mask[p]) {
+        const i = p * 4;
+        img.data[i] = source[i];
+        img.data[i + 1] = source[i + 1];
+        img.data[i + 2] = source[i + 2];
+        img.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, [pushUndo]);
+
   const save = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -372,6 +399,15 @@ export default function CutoutEditor({ job, settings, onSave, onClose }: Props) 
             title="Rimuove in un colpo tutti i pixel color pelle rimasti (dita, mani, braccia)"
           >
             🖐 Rimuovi pelle
+          </button>
+          <button
+            type="button"
+            className="btn small"
+            onClick={fillHoles}
+            disabled={!hasOriginal}
+            title="Ripristina le zone interne cancellate per errore (es. interno della scarpa in ombra)"
+          >
+            🕳 Riempi buchi
           </button>
           <button
             type="button"

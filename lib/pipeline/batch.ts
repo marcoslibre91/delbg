@@ -2,7 +2,13 @@ import { cutoutKeyFor, type JobState, type Settings } from "../types";
 import { normalizeImage } from "./normalize";
 import { ProviderError, removeBackgroundWith } from "./providers";
 import { compositeCutout } from "./composite";
-import { skinRatio, SKIN_WARN_THRESHOLD, SKIN_WARNING_MESSAGE } from "./qc";
+import {
+  analyzeCutout,
+  HOLE_WARN_THRESHOLD,
+  HOLE_WARNING_MESSAGE,
+  SKIN_WARN_THRESHOLD,
+  SKIN_WARNING_MESSAGE,
+} from "./qc";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [2000, 4000, 8000];
@@ -101,13 +107,24 @@ export async function runBatch(
 
         // automatic QC on fresh cutouts: flag and pre-select suspicious results
         try {
-          const ratio = await skinRatio(cutout);
-          if (ratio > SKIN_WARN_THRESHOLD) {
-            cb.onJob(job.id, { warning: SKIN_WARNING_MESSAGE, selected: true });
+          const analysis = await analyzeCutout(cutout);
+          const problems: string[] = [];
+          if (analysis.skinRatio > SKIN_WARN_THRESHOLD) {
+            problems.push(SKIN_WARNING_MESSAGE);
             cb.onLog(
               "warn",
-              `${job.name}: possibile mano/braccio nel ritaglio (${Math.round(ratio * 100)}% di pelle) — pre-selezionata per il retry`
+              `${job.name}: possibile mano/braccio nel ritaglio (${Math.round(analysis.skinRatio * 100)}% di pelle) — pre-selezionata`
             );
+          }
+          if (analysis.holeRatio > HOLE_WARN_THRESHOLD) {
+            problems.push(HOLE_WARNING_MESSAGE);
+            cb.onLog(
+              "warn",
+              `${job.name}: possibile parte interna rimossa (buco interno ${Math.round(analysis.holeRatio * 100)}% del soggetto) — usa Riempi buchi nell'editor`
+            );
+          }
+          if (problems.length) {
+            cb.onJob(job.id, { warning: problems.join(" · "), selected: true });
           } else {
             cb.onJob(job.id, { warning: null });
           }
