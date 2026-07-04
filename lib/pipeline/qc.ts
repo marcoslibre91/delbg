@@ -11,7 +11,7 @@
 const ANALYSIS_SIDE = 320;
 const MIN_OPAQUE_PIXELS = 500;
 
-function isSkin(r: number, g: number, b: number): boolean {
+export function isSkin(r: number, g: number, b: number): boolean {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
   const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
