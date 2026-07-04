@@ -1,4 +1,5 @@
 import type { Provider, ProviderErrorKind, Settings } from "../types";
+import { loadAppPassword } from "../settings";
 
 export class ProviderError extends Error {
   kind: ProviderErrorKind;
@@ -51,6 +52,8 @@ export async function removeBackgroundWith(
   const headers: Record<string, string> = {};
   const key = provider === "photoroom" ? settings.photoroomKey : settings.removebgKey;
   if (key.trim()) headers["x-provider-key"] = key.trim();
+  const appPassword = loadAppPassword();
+  if (appPassword) headers["x-app-password"] = appPassword;
 
   let response: Response;
   try {

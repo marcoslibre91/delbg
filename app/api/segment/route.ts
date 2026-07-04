@@ -39,6 +39,14 @@ function errorJson(status: number, message: string, retryAfter?: string | null) 
 }
 
 export async function POST(request: NextRequest) {
+  // the proxy spends real credits: honor the optional password gate
+  if (
+    process.env.APP_PASSWORD &&
+    request.headers.get("x-app-password") !== process.env.APP_PASSWORD
+  ) {
+    return errorJson(401, "Password dell'app mancante o errata: ricarica la pagina e inseriscila");
+  }
+
   const provider = request.nextUrl.searchParams.get("provider") ?? "";
   const target = TARGETS[provider];
   if (!target) {

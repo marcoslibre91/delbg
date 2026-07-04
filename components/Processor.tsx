@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { JobState, LocalModel, LogEntry, Provider, Settings } from "@/lib/types";
+import {
+  cutoutKeyFor,
+  PROVIDER_PRICES,
+  type JobState,
+  type LocalModel,
+  type LogEntry,
+  type Provider,
+  type ServerConfig,
+  type Settings,
+} from "@/lib/types";
 import { isValidHex, loadSettings, saveSettings } from "@/lib/settings";
 import { isSupportedImage, makeThumbnail } from "@/lib/pipeline/normalize";
 import { makeOutputNamer } from "@/lib/pipeline/naming";
@@ -15,6 +24,7 @@ import {
   type DrivePickedFolder,
 } from "@/lib/drive/google";
 import SettingsPanel from "./SettingsPanel";
+import ApiKeysPanel from "./ApiKeysPanel";
 import JobCard from "./JobCard";
 import LogPanel from "./LogPanel";
 
@@ -34,7 +44,7 @@ async function mapWithConcurrency<T>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-export default function Processor() {
+export default function Processor({ serverConfig }: { serverConfig: ServerConfig | null }) {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [jobs, setJobs] = useState<JobState[]>([]);
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -285,6 +295,17 @@ export default function Processor() {
   const canRun = !running && !importing && isValidHex(settings.backgroundColor);
   const percent = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
+  // defective cost estimate: only the pending images that will REALLY call the
+  // paid API (cached cutouts and the local model cost nothing)
+  const targetKey = cutoutKeyFor(settings);
+  const apiCallCount =
+    settings.provider === "local"
+      ? 0
+      : jobs.filter(
+          (j) => j.status !== "done" && !(j.cutout && j.cutoutKey === targetKey)
+        ).length;
+  const estimatedCost = apiCallCount * PROVIDER_PRICES[settings.provider];
+
   return (
     <div className="layout">
       <main>
@@ -357,6 +378,11 @@ export default function Processor() {
               >
                 {running ? "In corso…" : `Processa ${pendingCount} immagini`}
               </button>
+              {!running && apiCallCount > 0 && (
+                <span className="cost-estimate" title="Solo le immagini che chiameranno davvero l'API: scontorni in cache e modello locale non costano nulla">
+                  ≈ ${estimatedCost.toFixed(2)} ({apiCallCount} scontorni con {settings.provider === "photoroom" ? "PhotoRoom" : "remove.bg"})
+                </span>
+              )}
               {doneCount > 0 && (
                 <button
                   type="button"
@@ -419,7 +445,18 @@ export default function Processor() {
       </main>
 
       <aside>
-        <SettingsPanel settings={settings} disabled={running} onChange={updateSettings} />
+        <SettingsPanel
+          settings={settings}
+          serverConfig={serverConfig}
+          disabled={running}
+          onChange={updateSettings}
+        />
+        <ApiKeysPanel
+          settings={settings}
+          serverConfig={serverConfig}
+          disabled={running}
+          onChange={updateSettings}
+        />
       </aside>
     </div>
   );

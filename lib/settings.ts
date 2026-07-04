@@ -2,7 +2,7 @@ import type { Settings } from "./types";
 
 export const DEFAULT_SETTINGS: Settings = {
   provider: "local",
-  backgroundColor: "#F5F5F5",
+  backgroundColor: "#F2EDE7", // il "neutro" scelto dal cliente
   jpegQuality: 0.92,
   outputFormat: "original",
   squareSize: 2000,
@@ -12,9 +12,27 @@ export const DEFAULT_SETTINGS: Settings = {
   removebgKey: "",
 };
 
-export const COLOR_PRESETS = ["#FFFFFF", "#F5F5F5", "#EFEBE2", "#E8E8E8"];
+export const COLOR_PRESETS = ["#F2EDE7", "#FFFFFF", "#F5F5F5", "#E8E8E8"];
 
 const STORAGE_KEY = "delbg-settings-v1";
+const PASSWORD_KEY = "delbg-app-password";
+
+export function loadAppPassword(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(PASSWORD_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveAppPassword(password: string): void {
+  try {
+    window.localStorage.setItem(PASSWORD_KEY, password);
+  } catch {
+    // storage unavailable: the user will just be asked again next visit
+  }
+}
 
 export function loadSettings(): Settings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;

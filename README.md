@@ -33,9 +33,17 @@ Copia `.env.example` in `.env.local` e compila ciò che ti serve. Tutto è opzio
 | `NEXT_PUBLIC_GOOGLE_API_KEY` | API key per il Google Picker |
 | `PHOTOROOM_API_KEY` | Chiave PhotoRoom lato server (in alternativa si incolla nella UI) |
 | `REMOVEBG_API_KEY` | Chiave remove.bg lato server (in alternativa si incolla nella UI) |
+| `APP_PASSWORD` | Codice di accesso all'app: protegge la pagina e il proxy API (consigliato con chiavi server) |
 | `NEXT_PUBLIC_IMGLY_PATH` | Percorso alternativo per gli asset del modello locale (default: self-hosted `/imgly/`) |
 
 Le chiavi incollate nella UI restano nel `localStorage` del browser e transitano dal proxy `/api/segment` senza mai essere salvate sul server. Le chiavi configurate come variabili d'ambiente non raggiungono mai il browser.
+
+### Chiavi API e sicurezza
+
+- Il pannello **Chiavi API** nella colonna destra mostra lo stato reale di ogni provider: *attiva sul server* (variabile Vercel), *salvata in questo browser* o *non configurata* — con badge riepilogativo nella scelta del provider.
+- Per remove.bg il bottone **"Verifica crediti"** interroga l'endpoint account (gratuito) e mostra crediti residui e chiamate preview gratuite.
+- Se configuri le chiavi sul server, imposta anche `APP_PASSWORD`: senza, chiunque trovi l'URL può consumare i tuoi crediti. Il codice viene chiesto una volta e ricordato dal browser; protegge sia la pagina sia tutte le chiamate al proxy.
+- Prima del batch, accanto al bottone "Processa" compare la **stima dei costi** calcolata solo sulle immagini che chiameranno davvero l'API a pagamento (scontorni in cache e modello locale = zero).
 
 ## Setup Google Cloud (per l'integrazione Drive)
 

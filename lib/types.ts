@@ -70,3 +70,17 @@ export interface LogEntry {
 }
 
 export type ProviderErrorKind = "fatal" | "retryable" | "skip";
+
+/** What /api/config reveals to the client. */
+export interface ServerConfig {
+  passwordRequired: boolean;
+  authorized: boolean;
+  /** Which providers have a key configured server-side (null until authorized) */
+  serverKeys: { photoroom: boolean; removebg: boolean } | null;
+}
+
+export const PROVIDER_PRICES: Record<Provider, number> = {
+  local: 0,
+  photoroom: 0.02,
+  removebg: 0.2,
+};

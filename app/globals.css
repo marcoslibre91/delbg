@@ -550,6 +550,139 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+/* ---- password gate ---- */
+
+.gate {
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.gate-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 32px;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+
+.gate-card h2 {
+  margin: 0;
+}
+
+.gate-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.gate-card input {
+  text-align: center;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+}
+
+/* ---- api keys panel ---- */
+
+aside {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+aside .panel {
+  position: static;
+}
+
+.key-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.key-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.key-row .mini-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+}
+
+.key-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.key-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #c4c9d1;
+}
+
+.key-server .key-dot,
+.key-browser .key-dot {
+  background: #2e7d4f;
+}
+
+.key-verify {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn.small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.key-credits {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.key-badge {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warn);
+  background: #fff8e6;
+  border: 1px solid #f0e2b6;
+  border-radius: 999px;
+  padding: 1px 8px;
+  vertical-align: 1px;
+}
+
+.key-badge.ready {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: #bfd9c9;
+}
+
+.cost-estimate {
+  font-size: 13px;
+  color: var(--warn);
+  font-weight: 600;
+}
+
 /* ---- log ---- */
 
 .log-panel ul {
