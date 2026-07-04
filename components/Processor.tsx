@@ -105,6 +105,7 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
         cutout: null,
         cutoutKey: null,
         localModel: null,
+        selected: false,
         result: null,
         resultUrl: null,
         outName: namerRef.current(file.name),
@@ -202,20 +203,50 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
     );
   }, [jobs, settings, runJobs]);
 
-  const retryJob = useCallback(
-    (id: string, provider: Provider) => {
-      const job = jobs.find((j) => j.id === id);
-      if (!job || running) return;
-      // alternate the local model variant on every local retry
-      const localModel: LocalModel =
-        provider === "local" ? (job.localModel === "small" ? "medium" : "small") : "medium";
-      const fresh: JobState = { ...job, cutout: null, cutoutKey: null };
-      patchJob(id, { cutout: null, cutoutKey: null });
-      const detail =
-        provider === "local" ? `locale (variante ${localModel})` : provider;
-      void runJobs([fresh], { ...settings, provider, localModel }, `${job.name}: riprovo con ${detail}`);
+  const toggleSelect = useCallback((id: string) => {
+    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, selected: !j.selected } : j)));
+  }, []);
+
+  const selectFailed = useCallback(() => {
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.status === "error" || j.status === "skipped" ? { ...j, selected: true } : j
+      )
+    );
+  }, []);
+
+  const deselectAll = useCallback(() => {
+    setJobs((prev) => prev.map((j) => (j.selected ? { ...j, selected: false } : j)));
+  }, []);
+
+  const retrySelected = useCallback(
+    (provider: Provider) => {
+      const chosen = jobs.filter((j) => j.selected);
+      if (!chosen.length || running) return;
+      // fresh copies with the cutout cache invalidated: retry must re-segment.
+      // With the local provider each image alternates its own model variant.
+      const fresh: JobState[] = chosen.map((j) => ({
+        ...j,
+        selected: false,
+        cutout: null,
+        cutoutKey: null,
+        retryModel:
+          provider === "local"
+            ? ((j.localModel === "small" ? "medium" : "small") as LocalModel)
+            : null,
+      }));
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.selected ? { ...j, selected: false, cutout: null, cutoutKey: null } : j
+        )
+      );
+      const label =
+        provider === "local"
+          ? `Riprovo ${fresh.length} immagini col modello locale (variante alternativa per ciascuna)`
+          : `Riprovo ${fresh.length} immagini con ${provider === "photoroom" ? "PhotoRoom" : "remove.bg"}`;
+      void runJobs(fresh, { ...settings, provider }, label);
     },
-    [jobs, running, settings, patchJob, runJobs]
+    [jobs, running, settings, runJobs]
   );
 
   const stop = useCallback(() => {
@@ -291,6 +322,7 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
 
   const doneCount = jobs.filter((j) => j.status === "done").length;
   const failedCount = jobs.filter((j) => j.status === "error" || j.status === "skipped").length;
+  const selectedCount = jobs.filter((j) => j.selected).length;
   const pendingCount = jobs.length - doneCount;
   const canRun = !running && !importing && isValidHex(settings.backgroundColor);
   const percent = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
@@ -399,6 +431,11 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
                   Ferma
                 </button>
               )}
+              {failedCount > 0 && !running && (
+                <button type="button" className="btn subtle" onClick={selectFailed}>
+                  Seleziona non riuscite ({failedCount})
+                </button>
+              )}
               <button
                 type="button"
                 className="btn"
@@ -435,10 +472,36 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
             )}
             <div className="job-grid">
               {jobs.map((job) => (
-                <JobCard key={job.id} job={job} disabled={running} onRemove={removeJob} onRetry={retryJob} />
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  disabled={running}
+                  onRemove={removeJob}
+                  onToggleSelect={toggleSelect}
+                />
               ))}
             </div>
           </section>
+        )}
+
+        {selectedCount > 0 && !running && (
+          <div className="action-bar" role="toolbar" aria-label="Azioni sulle immagini selezionate">
+            <span className="action-count">
+              {selectedCount} {selectedCount === 1 ? "selezionata" : "selezionate"} — riprova scontorno con:
+            </span>
+            <button type="button" className="btn" onClick={() => retrySelected("local")}>
+              Locale — variante alternativa (gratis)
+            </button>
+            <button type="button" className="btn" onClick={() => retrySelected("photoroom")}>
+              PhotoRoom ≈ ${(selectedCount * PROVIDER_PRICES.photoroom).toFixed(2)}
+            </button>
+            <button type="button" className="btn" onClick={() => retrySelected("removebg")}>
+              remove.bg ≈ ${(selectedCount * PROVIDER_PRICES.removebg).toFixed(2)}
+            </button>
+            <button type="button" className="btn subtle" onClick={deselectAll}>
+              Deseleziona
+            </button>
+          </div>
         )}
 
         <LogPanel entries={log} />

@@ -58,7 +58,12 @@ export async function runBatch(
         cb.onJob(job.id, { status: "normalizing", error: null });
       }
 
-      const targetKey = cutoutKeyFor(settings);
+      // per-job variant override (batch retry alternates each image's variant)
+      const effective: Settings =
+        settings.provider === "local" && job.retryModel
+          ? { ...settings, localModel: job.retryModel }
+          : settings;
+      const targetKey = cutoutKeyFor(effective);
       // reuse the cached cutout when it comes from the same provider+variant,
       // or from any provider in recomposite-only mode (color/format change)
       let cutout =
@@ -69,7 +74,7 @@ export async function runBatch(
         cb.onJob(job.id, { status: "removing" });
         for (let attempt = 1; ; attempt++) {
           try {
-            cutout = await removeBackgroundWith(settings.provider, normalized, settings, signal);
+            cutout = await removeBackgroundWith(effective.provider, normalized, effective, signal);
             break;
           } catch (err) {
             if (signal.aborted) throw err;
@@ -88,7 +93,9 @@ export async function runBatch(
         cb.onJob(job.id, {
           cutout,
           cutoutKey: targetKey,
-          localModel: settings.provider === "local" ? settings.localModel ?? "medium" : job.localModel,
+          retryModel: null,
+          localModel:
+            effective.provider === "local" ? effective.localModel ?? "medium" : job.localModel,
         });
       } else {
         cb.onLog("info", `${job.name}: scontorno già in cache, nessuna nuova chiamata`);

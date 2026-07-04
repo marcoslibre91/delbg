@@ -56,6 +56,10 @@ export interface JobState {
   cutoutKey: string | null;
   /** Local model variant used for the last local run on this job */
   localModel: LocalModel | null;
+  /** One-shot per-job variant override for the next local run (batch retry) */
+  retryModel?: LocalModel | null;
+  /** Ticked in the grid for batch reprocessing */
+  selected: boolean;
   result: Blob | null;
   resultUrl: string | null;
   outName: string | null;
