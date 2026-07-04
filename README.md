@@ -11,7 +11,10 @@ Web app per il processing batch di foto prodotto e-commerce: rimozione dello sfo
 - **Output**: JPG qualità 92, formato **originale** (stessa inquadratura, cambia solo lo sfondo) oppure **quadrato** con soggetto centrato e margine configurabile
 - **Consegna**: download ZIP oppure upload diretto in una cartella di Google Drive
 - Batch con parallelismo, retry automatico, skip delle immagini fallite, log live e **cache degli scontorni** (ri-processare con un altro colore non ripaga mai l'API)
-- **Retry per singola immagine** (icona ↻ sulla card): riprova solo quella foto con la variante alternativa del modello locale oppure con PhotoRoom/remove.bg, senza toccare le altre — utile quando il modello gratuito include mani o braccia che tengono il prodotto
+- **Selezione multipla con barra azioni**: checkbox sulle card, retry in batch della selezione con locale (variante alternativa)/PhotoRoom/remove.bg e stima costi calcolata sulla selezione
+- **QC automatico**: dopo ogni scontorno l'app stima quanta "pelle" è rimasta nel ritaglio; le foto sospette (mano/braccio che regge il prodotto) ricevono il badge *⚠ da controllare* e vengono pre-selezionate per il retry. Euristico: può dare falsi positivi su prodotti color cuoio e mancare braccia tatuate/guantate
+- **Editor di ritocco** (✎ sulla card): **bacchetta magica** stile Photoshop (un clic rimuove l'area contigua di colore simile, tolleranza regolabile) + **gomma** a pennello, con undo, zoom e anteprima già sul colore di sfondo scelto — per eliminare a mano il braccio nei casi che nessun modello risolve
+- Su remove.bg viene inviato `type=product`: il modello tratta il primo piano come prodotto ed esclude esplicitamente persone e mani
 - **"Riapplica colore/formato a tutte"**: ricompone tutte le immagini dagli scontorni già fatti (zero chiamate API, istantaneo) per provare più colori di sfondo
 
 ## Avvio rapido

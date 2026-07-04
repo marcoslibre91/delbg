@@ -28,7 +28,8 @@ const TARGETS: Record<string, ProviderTarget> = {
     url: "https://api.remove.bg/v1.0/removebg",
     keyHeader: "X-Api-Key",
     envVar: "REMOVEBG_API_KEY",
-    extraFields: { format: "png", size: "auto" },
+    // type=product: treat the foreground as a product, excluding people/hands
+    extraFields: { format: "png", size: "auto", type: "product" },
   },
 };
 

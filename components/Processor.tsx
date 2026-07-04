@@ -23,10 +23,12 @@ import {
   uploadToDrive,
   type DrivePickedFolder,
 } from "@/lib/drive/google";
+import { compositeCutout } from "@/lib/pipeline/composite";
 import SettingsPanel from "./SettingsPanel";
 import ApiKeysPanel from "./ApiKeysPanel";
 import JobCard from "./JobCard";
 import LogPanel from "./LogPanel";
+import CutoutEditor from "./CutoutEditor";
 
 let jobCounter = 0;
 
@@ -54,6 +56,7 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [outputFolder, setOutputFolder] = useState<DrivePickedFolder | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const namerRef = useRef(makeOutputNamer());
   const driveReady = driveConfig() !== null;
@@ -106,6 +109,7 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
         cutoutKey: null,
         localModel: null,
         selected: false,
+        warning: null,
         result: null,
         resultUrl: null,
         outName: namerRef.current(file.name),
@@ -228,6 +232,7 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
       const fresh: JobState[] = chosen.map((j) => ({
         ...j,
         selected: false,
+        warning: null,
         cutout: null,
         cutoutKey: null,
         retryModel:
@@ -237,7 +242,9 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
       }));
       setJobs((prev) =>
         prev.map((j) =>
-          j.selected ? { ...j, selected: false, cutout: null, cutoutKey: null } : j
+          j.selected
+            ? { ...j, selected: false, warning: null, cutout: null, cutoutKey: null }
+            : j
         )
       );
       const label =
@@ -253,6 +260,32 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
     abortRef.current?.abort();
     addLog("warn", "Interruzione richiesta: le immagini in corso vengono fermate");
   }, [addLog]);
+
+  const saveEditedCutout = useCallback(
+    async (id: string, cutout: Blob) => {
+      const job = jobs.find((j) => j.id === id);
+      setEditingId(null);
+      if (!job) return;
+      try {
+        const composed = await compositeCutout(cutout, settings);
+        patchJob(id, {
+          cutout,
+          cutoutKey: job.cutoutKey ? `${job.cutoutKey}+edit` : "manual-edit",
+          warning: null,
+          selected: false,
+          status: "done",
+          result: composed.blob,
+          width: composed.width,
+          height: composed.height,
+          error: null,
+        });
+        addLog("info", `${job.name}: ritocco manuale applicato`);
+      } catch (err) {
+        addLog("error", `${job.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+    [jobs, settings, patchJob, addLog]
+  );
 
   const removeJob = useCallback((id: string) => {
     setJobs((prev) => {
@@ -478,6 +511,7 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
                   disabled={running}
                   onRemove={removeJob}
                   onToggleSelect={toggleSelect}
+                  onEdit={setEditingId}
                 />
               ))}
             </div>
@@ -505,6 +539,19 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
         )}
 
         <LogPanel entries={log} />
+
+        {editingId && (() => {
+          const job = jobs.find((j) => j.id === editingId);
+          if (!job?.cutout) return null;
+          return (
+            <CutoutEditor
+              job={job}
+              settings={settings}
+              onSave={(id, cutout) => void saveEditedCutout(id, cutout)}
+              onClose={() => setEditingId(null)}
+            />
+          );
+        })()}
       </main>
 
       <aside>

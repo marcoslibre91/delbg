@@ -2,6 +2,7 @@ import { cutoutKeyFor, type JobState, type Settings } from "../types";
 import { normalizeImage } from "./normalize";
 import { ProviderError, removeBackgroundWith } from "./providers";
 import { compositeCutout } from "./composite";
+import { skinRatio, SKIN_WARN_THRESHOLD, SKIN_WARNING_MESSAGE } from "./qc";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [2000, 4000, 8000];
@@ -97,6 +98,23 @@ export async function runBatch(
           localModel:
             effective.provider === "local" ? effective.localModel ?? "medium" : job.localModel,
         });
+
+        // automatic QC on fresh cutouts: flag and pre-select suspicious results
+        try {
+          const ratio = await skinRatio(cutout);
+          if (ratio > SKIN_WARN_THRESHOLD) {
+            cb.onJob(job.id, { warning: SKIN_WARNING_MESSAGE, selected: true });
+            cb.onLog(
+              "warn",
+              `${job.name}: possibile mano/braccio nel ritaglio (${Math.round(ratio * 100)}% di pelle) — pre-selezionata per il retry`
+            );
+          } else {
+            cb.onJob(job.id, { warning: null });
+          }
+        } catch (qcError) {
+          // QC is best-effort: never fail a job because of it
+          cb.onLog("warn", `${job.name}: controllo qualità non riuscito (${String(qcError)})`);
+        }
       } else {
         cb.onLog("info", `${job.name}: scontorno già in cache, nessuna nuova chiamata`);
       }

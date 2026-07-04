@@ -18,9 +18,10 @@ interface Props {
   disabled: boolean;
   onRemove: (id: string) => void;
   onToggleSelect: (id: string) => void;
+  onEdit: (id: string) => void;
 }
 
-export default function JobCard({ job, disabled, onRemove, onToggleSelect }: Props) {
+export default function JobCard({ job, disabled, onRemove, onToggleSelect, onEdit }: Props) {
   const [showOriginal, setShowOriginal] = useState(false);
   const busy = job.status === "normalizing" || job.status === "removing" || job.status === "compositing";
   const selectable = job.status === "done" || job.status === "error" || job.status === "skipped";
@@ -64,6 +65,11 @@ export default function JobCard({ job, disabled, onRemove, onToggleSelect }: Pro
         <span className={`job-status status-${job.status}`}>
           {busy && <span className="spinner" aria-hidden />}
           {STATUS_LABELS[job.status]}
+          {job.warning && job.status === "done" && (
+            <span className="job-warning" title={job.warning}>
+              ⚠ da controllare
+            </span>
+          )}
         </span>
         {job.error && <span className="job-error" title={job.error}>{job.error}</span>}
       </figcaption>
@@ -72,6 +78,17 @@ export default function JobCard({ job, disabled, onRemove, onToggleSelect }: Pro
           <a href={job.resultUrl} download={job.outName ?? undefined} className="mini-btn" title="Scarica JPG">
             ⬇
           </a>
+        )}
+        {job.status === "done" && job.cutout && (
+          <button
+            type="button"
+            className="mini-btn"
+            disabled={disabled}
+            onClick={() => onEdit(job.id)}
+            title="Ritocca a mano: bacchetta magica e gomma"
+          >
+            ✎
+          </button>
         )}
         <button
           type="button"

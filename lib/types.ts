@@ -60,6 +60,8 @@ export interface JobState {
   retryModel?: LocalModel | null;
   /** Ticked in the grid for batch reprocessing */
   selected: boolean;
+  /** Automatic QC warning (e.g. possible hand/arm left in the cutout) */
+  warning: string | null;
   result: Blob | null;
   resultUrl: string | null;
   outName: string | null;
