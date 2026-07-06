@@ -1,21 +1,34 @@
 "use client";
 
-import type { Provider, Settings } from "@/lib/types";
+import type { Provider, ServerConfig, Settings } from "@/lib/types";
 import { COLOR_PRESETS, isValidHex } from "@/lib/settings";
 
 const PROVIDERS: Array<{ id: Provider; label: string; hint: string }> = [
   { id: "local", label: "Locale (gratis)", hint: "Modello AI nel browser, nessun costo e nessun upload" },
+  {
+    id: "localhq",
+    label: "Locale HQ (gratis, sperimentale)",
+    hint: "BiRefNet nel browser: qualità superiore, ~150 MB al primo uso, meglio con GPU (Chrome/Edge recenti)",
+  },
   { id: "photoroom", label: "PhotoRoom", hint: "~$0,02 a immagine, qualità e-commerce" },
   { id: "removebg", label: "remove.bg", hint: "~$0,20 a immagine, per casi difficili" },
 ];
 
 interface Props {
   settings: Settings;
+  serverConfig: ServerConfig | null;
   disabled: boolean;
   onChange: (patch: Partial<Settings>) => void;
 }
 
-export default function SettingsPanel({ settings, disabled, onChange }: Props) {
+export default function SettingsPanel({ settings, serverConfig, disabled, onChange }: Props) {
+  const serverKeys = serverConfig?.serverKeys ?? { photoroom: false, removebg: false };
+  const keyReady: Record<Provider, boolean> = {
+    local: true,
+    localhq: true,
+    photoroom: serverKeys.photoroom || Boolean(settings.photoroomKey.trim()),
+    removebg: serverKeys.removebg || Boolean(settings.removebgKey.trim()),
+  };
   return (
     <section className="panel">
       <h2>Impostazioni</h2>
@@ -32,46 +45,19 @@ export default function SettingsPanel({ settings, disabled, onChange }: Props) {
                 onChange={() => onChange({ provider: p.id })}
               />
               <span>
-                <strong>{p.label}</strong>
+                <strong>
+                  {p.label}
+                  {(p.id === "photoroom" || p.id === "removebg") && (
+                    <span className={`key-badge${keyReady[p.id] ? " ready" : ""}`}>
+                      {keyReady[p.id] ? "🔑 chiave attiva" : "chiave mancante"}
+                    </span>
+                  )}
+                </strong>
                 <small>{p.hint}</small>
               </span>
             </label>
           ))}
         </div>
-
-        {settings.provider === "photoroom" && (
-          <div className="field">
-            <label className="field-label" htmlFor="photoroom-key">Chiave API PhotoRoom</label>
-            <input
-              id="photoroom-key"
-              type="password"
-              value={settings.photoroomKey}
-              placeholder="sandbox_… o chiave live"
-              onChange={(e) => onChange({ photoroomKey: e.target.value })}
-              autoComplete="off"
-            />
-            <small className="field-hint">
-              Salvata solo in questo browser. Se il server ha PHOTOROOM_API_KEY configurata puoi lasciare vuoto.
-            </small>
-          </div>
-        )}
-
-        {settings.provider === "removebg" && (
-          <div className="field">
-            <label className="field-label" htmlFor="removebg-key">Chiave API remove.bg</label>
-            <input
-              id="removebg-key"
-              type="password"
-              value={settings.removebgKey}
-              placeholder="Chiave API"
-              onChange={(e) => onChange({ removebgKey: e.target.value })}
-              autoComplete="off"
-            />
-            <small className="field-hint">
-              Salvata solo in questo browser. Se il server ha REMOVEBG_API_KEY configurata puoi lasciare vuoto.
-            </small>
-          </div>
-        )}
 
         <div className="field">
           <label className="field-label" htmlFor="bg-color">Colore sfondo</label>
@@ -95,7 +81,7 @@ export default function SettingsPanel({ settings, disabled, onChange }: Props) {
                 type="button"
                 className={`swatch${settings.backgroundColor === hex ? " selected" : ""}`}
                 style={{ background: hex }}
-                title={hex}
+                title={hex === "#F2EDE7" ? `${hex} — Colore cliente` : hex}
                 onClick={() => onChange({ backgroundColor: hex })}
               />
             ))}

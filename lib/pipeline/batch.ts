@@ -1,7 +1,14 @@
-import type { JobState, Settings } from "../types";
+import { cutoutKeyFor, type JobState, type Settings } from "../types";
 import { normalizeImage } from "./normalize";
 import { ProviderError, removeBackgroundWith } from "./providers";
 import { compositeCutout } from "./composite";
+import {
+  analyzeCutout,
+  HOLE_WARN_THRESHOLD,
+  HOLE_WARNING_MESSAGE,
+  SKIN_WARN_THRESHOLD,
+  SKIN_WARNING_MESSAGE,
+} from "./qc";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [2000, 4000, 8000];
@@ -39,8 +46,11 @@ export async function runBatch(
   cb: BatchCallbacks,
   signal: AbortSignal
 ): Promise<void> {
-  // the in-browser model gains nothing from parallel inference; API providers do
-  const concurrency = settings.provider === "local" ? 1 : Math.max(1, settings.parallelJobs);
+  // the in-browser models gain nothing from parallel inference; API providers do
+  const concurrency =
+    settings.provider === "local" || settings.provider === "localhq"
+      ? 1
+      : Math.max(1, settings.parallelJobs);
   const queue = [...jobs];
   const total = jobs.length;
   let done = 0;
@@ -58,13 +68,23 @@ export async function runBatch(
         cb.onJob(job.id, { status: "normalizing", error: null });
       }
 
+      // per-job variant override (batch retry alternates each image's variant)
+      const effective: Settings =
+        settings.provider === "local" && job.retryModel
+          ? { ...settings, localModel: job.retryModel }
+          : settings;
+      const targetKey = cutoutKeyFor(effective);
+      // reuse the cached cutout when it comes from the same provider+variant,
+      // or from any provider in recomposite-only mode (color/format change)
       let cutout =
-        job.cutout && job.cutoutProvider === settings.provider ? job.cutout : null;
+        job.cutout && (job.cutoutKey === targetKey || settings.reuseAnyCutout)
+          ? job.cutout
+          : null;
       if (!cutout) {
         cb.onJob(job.id, { status: "removing" });
         for (let attempt = 1; ; attempt++) {
           try {
-            cutout = await removeBackgroundWith(settings.provider, normalized, settings, signal);
+            cutout = await removeBackgroundWith(effective.provider, normalized, effective, signal);
             break;
           } catch (err) {
             if (signal.aborted) throw err;
@@ -80,7 +100,41 @@ export async function runBatch(
             throw err;
           }
         }
-        cb.onJob(job.id, { cutout, cutoutProvider: settings.provider });
+        cb.onJob(job.id, {
+          cutout,
+          cutoutKey: targetKey,
+          retryModel: null,
+          localModel:
+            effective.provider === "local" ? effective.localModel ?? "medium" : job.localModel,
+        });
+
+        // automatic QC on fresh cutouts: flag and pre-select suspicious results
+        try {
+          const analysis = await analyzeCutout(cutout);
+          const problems: string[] = [];
+          if (analysis.skinRatio > SKIN_WARN_THRESHOLD) {
+            problems.push(SKIN_WARNING_MESSAGE);
+            cb.onLog(
+              "warn",
+              `${job.name}: possibile mano/braccio nel ritaglio (${Math.round(analysis.skinRatio * 100)}% di pelle) — pre-selezionata`
+            );
+          }
+          if (analysis.holeRatio > HOLE_WARN_THRESHOLD) {
+            problems.push(HOLE_WARNING_MESSAGE);
+            cb.onLog(
+              "warn",
+              `${job.name}: possibile parte interna rimossa (buco interno ${Math.round(analysis.holeRatio * 100)}% del soggetto) — usa Riempi buchi nell'editor`
+            );
+          }
+          if (problems.length) {
+            cb.onJob(job.id, { warning: problems.join(" · "), selected: true });
+          } else {
+            cb.onJob(job.id, { warning: null });
+          }
+        } catch (qcError) {
+          // QC is best-effort: never fail a job because of it
+          cb.onLog("warn", `${job.name}: controllo qualità non riuscito (${String(qcError)})`);
+        }
       } else {
         cb.onLog("info", `${job.name}: scontorno già in cache, nessuna nuova chiamata`);
       }
@@ -126,6 +180,6 @@ export async function runBatch(
 
   await Promise.all(Array.from({ length: concurrency }, worker));
   if (fatal) {
-    throw new Error("Batch interrotto: chiave API non valida o crediti esauriti");
+    throw new Error("Batch interrotto per un errore bloccante: dettagli nel log qui sopra");
   }
 }

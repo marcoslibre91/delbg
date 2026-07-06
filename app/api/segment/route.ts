@@ -28,7 +28,8 @@ const TARGETS: Record<string, ProviderTarget> = {
     url: "https://api.remove.bg/v1.0/removebg",
     keyHeader: "X-Api-Key",
     envVar: "REMOVEBG_API_KEY",
-    extraFields: { format: "png", size: "auto" },
+    // type=product: treat the foreground as a product, excluding people/hands
+    extraFields: { format: "png", size: "auto", type: "product" },
   },
 };
 
@@ -39,6 +40,14 @@ function errorJson(status: number, message: string, retryAfter?: string | null) 
 }
 
 export async function POST(request: NextRequest) {
+  // the proxy spends real credits: honor the optional password gate
+  if (
+    process.env.APP_PASSWORD &&
+    request.headers.get("x-app-password") !== process.env.APP_PASSWORD
+  ) {
+    return errorJson(401, "Password dell'app mancante o errata: ricarica la pagina e inseriscila");
+  }
+
   const provider = request.nextUrl.searchParams.get("provider") ?? "";
   const target = TARGETS[provider];
   if (!target) {

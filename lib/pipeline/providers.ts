@@ -1,4 +1,5 @@
 import type { Provider, ProviderErrorKind, Settings } from "../types";
+import { loadAppPassword } from "../settings";
 
 export class ProviderError extends Error {
   kind: ProviderErrorKind;
@@ -31,6 +32,7 @@ export async function removeBackgroundWith(
 ): Promise<Blob> {
   if (provider === "local") {
     const { removeBackground } = await import("@imgly/background-removal");
+    const { solidifyAlpha } = await import("./alpha");
     // model assets are self-hosted from public/imgly (populated by
     // scripts/copy-model.mjs at build time); NEXT_PUBLIC_IMGLY_PATH can
     // point to a CDN instead
@@ -38,10 +40,19 @@ export async function removeBackgroundWith(
     if (publicPath.startsWith("/")) {
       publicPath = `${window.location.origin}${publicPath}`;
     }
-    return removeBackground(image, {
+    const raw = await removeBackground(image, {
       publicPath,
+      model: settings.localModel ?? "medium",
       output: { format: "image/png", quality: 1 },
     });
+    // kill the "ghosts": half-removed arms left semi-transparent by the model
+    return solidifyAlpha(raw);
+  }
+
+  if (provider === "localhq") {
+    const { removeBackgroundHQ } = await import("./localhq");
+    const { solidifyAlpha } = await import("./alpha");
+    return solidifyAlpha(await removeBackgroundHQ(image));
   }
 
   const form = new FormData();
@@ -50,6 +61,8 @@ export async function removeBackgroundWith(
   const headers: Record<string, string> = {};
   const key = provider === "photoroom" ? settings.photoroomKey : settings.removebgKey;
   if (key.trim()) headers["x-provider-key"] = key.trim();
+  const appPassword = loadAppPassword();
+  if (appPassword) headers["x-app-password"] = appPassword;
 
   let response: Response;
   try {

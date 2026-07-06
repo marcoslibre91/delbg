@@ -5,12 +5,18 @@ Web app per il processing batch di foto prodotto e-commerce: rimozione dello sfo
 - **Sorgenti**: file locali (drag & drop) o selezione diretta da **Google Drive** (galleria con miniature, selezione multipla, Drive condivisi)
 - **Formati supportati**: HEIC, JPG/JPEG, PNG, WEBP (con orientamento EXIF corretto)
 - **Rimozione sfondo**, a scelta:
+  - **Locale HQ (gratis, sperimentale)** — BiRefNet nel browser via transformers.js: qualità superiore, ~150 MB scaricati da Hugging Face al primo uso, accelerato WebGPU
   - **Locale (gratis)** — modello AI che gira nel browser, nessun costo e nessun upload a terzi
   - **PhotoRoom** (~$0,02/immagine) — qualità e-commerce
   - **remove.bg** (~$0,20/immagine) — per i casi difficili
 - **Output**: JPG qualità 92, formato **originale** (stessa inquadratura, cambia solo lo sfondo) oppure **quadrato** con soggetto centrato e margine configurabile
 - **Consegna**: download ZIP oppure upload diretto in una cartella di Google Drive
 - Batch con parallelismo, retry automatico, skip delle immagini fallite, log live e **cache degli scontorni** (ri-processare con un altro colore non ripaga mai l'API)
+- **Selezione multipla con barra azioni**: checkbox sulle card, retry in batch della selezione con locale (variante alternativa)/PhotoRoom/remove.bg e stima costi calcolata sulla selezione
+- **QC automatico**: dopo ogni scontorno l'app stima quanta "pelle" è rimasta nel ritaglio; le foto sospette (mano/braccio nel ritaglio, oppure parti interne del prodotto rimosse per errore — rilevate come "buchi" chiusi nella silhouette) ricevono il badge *⚠ da controllare* e vengono pre-selezionate per il retry. Euristico: può dare falsi positivi su prodotti color cuoio e mancare braccia tatuate/guantate
+- **Editor di ritocco** (✎ sulla card): **bacchetta magica** stile Photoshop con distanza cromatica pesata sulla tinta (prende il braccio intero anche con ombre, tolleranza regolabile), **gomma −**, **ripristina +** (ridipinge dall'originale: recupera parti cancellate per sbaglio o mangiate dal modello), **"Rimuovi pelle"** one-click per dita/mani residue, **"Riempi buchi"** per ripristinare gli interni cancellati per errore (es. interno scarpa in ombra), **"Pulisci bordi"** anti-alone, undo (Ctrl+Z), zoom e anteprima già sul colore di sfondo scelto
+- Su remove.bg viene inviato `type=product`: il modello tratta il primo piano come prodotto ed esclude esplicitamente persone e mani
+- **"Riapplica colore/formato a tutte"**: ricompone tutte le immagini dagli scontorni già fatti (zero chiamate API, istantaneo) per provare più colori di sfondo
 
 ## Avvio rapido
 
@@ -31,9 +37,17 @@ Copia `.env.example` in `.env.local` e compila ciò che ti serve. Tutto è opzio
 | `NEXT_PUBLIC_GOOGLE_API_KEY` | API key per il Google Picker |
 | `PHOTOROOM_API_KEY` | Chiave PhotoRoom lato server (in alternativa si incolla nella UI) |
 | `REMOVEBG_API_KEY` | Chiave remove.bg lato server (in alternativa si incolla nella UI) |
+| `APP_PASSWORD` | Codice di accesso all'app: protegge la pagina e il proxy API (consigliato con chiavi server) |
 | `NEXT_PUBLIC_IMGLY_PATH` | Percorso alternativo per gli asset del modello locale (default: self-hosted `/imgly/`) |
 
 Le chiavi incollate nella UI restano nel `localStorage` del browser e transitano dal proxy `/api/segment` senza mai essere salvate sul server. Le chiavi configurate come variabili d'ambiente non raggiungono mai il browser.
+
+### Chiavi API e sicurezza
+
+- Il pannello **Chiavi API** nella colonna destra mostra lo stato reale di ogni provider: *attiva sul server* (variabile Vercel), *salvata in questo browser* o *non configurata* — con badge riepilogativo nella scelta del provider.
+- Per remove.bg il bottone **"Verifica crediti"** interroga l'endpoint account (gratuito) e mostra crediti residui e chiamate preview gratuite.
+- Se configuri le chiavi sul server, imposta anche `APP_PASSWORD`: senza, chiunque trovi l'URL può consumare i tuoi crediti. Il codice viene chiesto una volta e ricordato dal browser; protegge sia la pagina sia tutte le chiamate al proxy.
+- Prima del batch, accanto al bottone "Processa" compare la **stima dei costi** calcolata solo sulle immagini che chiameranno davvero l'API a pagamento (scontorni in cache e modello locale = zero).
 
 ## Setup Google Cloud (per l'integrazione Drive)
 

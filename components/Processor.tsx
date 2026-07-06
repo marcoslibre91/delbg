@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { JobState, LogEntry, Settings } from "@/lib/types";
+import {
+  cutoutKeyFor,
+  PROVIDER_PRICES,
+  type JobState,
+  type LocalModel,
+  type LogEntry,
+  type Provider,
+  type ServerConfig,
+  type Settings,
+} from "@/lib/types";
 import { isValidHex, loadSettings, saveSettings } from "@/lib/settings";
 import { isSupportedImage, makeThumbnail } from "@/lib/pipeline/normalize";
 import { makeOutputNamer } from "@/lib/pipeline/naming";
@@ -14,9 +23,12 @@ import {
   uploadToDrive,
   type DrivePickedFolder,
 } from "@/lib/drive/google";
+import { compositeCutout } from "@/lib/pipeline/composite";
 import SettingsPanel from "./SettingsPanel";
+import ApiKeysPanel from "./ApiKeysPanel";
 import JobCard from "./JobCard";
 import LogPanel from "./LogPanel";
+import CutoutEditor from "./CutoutEditor";
 
 let jobCounter = 0;
 
@@ -34,7 +46,7 @@ async function mapWithConcurrency<T>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-export default function Processor() {
+export default function Processor({ serverConfig }: { serverConfig: ServerConfig | null }) {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [jobs, setJobs] = useState<JobState[]>([]);
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -44,6 +56,7 @@ export default function Processor() {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [outputFolder, setOutputFolder] = useState<DrivePickedFolder | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const namerRef = useRef(makeOutputNamer());
   const driveReady = driveConfig() !== null;
@@ -93,7 +106,10 @@ export default function Processor() {
         error: null,
         normalized: null,
         cutout: null,
-        cutoutProvider: null,
+        cutoutKey: null,
+        localModel: null,
+        selected: false,
+        warning: null,
         result: null,
         resultUrl: null,
         outName: namerRef.current(file.name),
@@ -138,43 +154,141 @@ export default function Processor() {
     }
   }, [addFiles, addLog]);
 
-  const start = useCallback(async () => {
-    // process everything: cached cutouts make re-runs (e.g. new background color) free
-    const snapshot = [...jobs];
-    if (!snapshot.length) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setRunning(true);
-    setProgress({ done: 0, total: snapshot.length });
-    setJobs((prev) => prev.map((j) => ({ ...j, status: "queued", error: null })));
-    addLog(
-      "info",
+  const runJobs = useCallback(
+    async (snapshot: JobState[], effective: Settings, label: string) => {
+      if (!snapshot.length) return;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setRunning(true);
+      setProgress({ done: 0, total: snapshot.length });
+      const ids = new Set(snapshot.map((j) => j.id));
+      setJobs((prev) =>
+        prev.map((j) => (ids.has(j.id) ? { ...j, status: "queued", error: null } : j))
+      );
+      addLog("info", label);
+      try {
+        await runBatch(
+          snapshot,
+          effective,
+          {
+            onJob: patchJob,
+            onLog: addLog,
+            onProgress: (done, total) => setProgress({ done, total }),
+          },
+          controller.signal
+        );
+        addLog("info", "Batch completato");
+      } catch (err) {
+        addLog("error", err instanceof Error ? err.message : String(err));
+      } finally {
+        setRunning(false);
+        abortRef.current = null;
+      }
+    },
+    [addLog, patchJob]
+  );
+
+  const startPending = useCallback(() => {
+    // only images without a good result; cached cutouts are reused per provider
+    const snapshot = jobs.filter((j) => j.status !== "done");
+    void runJobs(
+      snapshot,
+      settings,
       `Batch avviato: ${snapshot.length} immagini, provider ${settings.provider}, sfondo ${settings.backgroundColor}`
     );
-    try {
-      await runBatch(
-        snapshot,
-        settings,
-        {
-          onJob: patchJob,
-          onLog: addLog,
-          onProgress: (done, total) => setProgress({ done, total }),
-        },
-        controller.signal
+  }, [jobs, settings, runJobs]);
+
+  const reapplyAll = useCallback(() => {
+    // recomposite everything from existing cutouts: new color/format at zero cost
+    void runJobs(
+      [...jobs],
+      { ...settings, reuseAnyCutout: true },
+      `Riapplico sfondo ${settings.backgroundColor} e formato ${settings.outputFormat} a ${jobs.length} immagini (nessuna nuova chiamata)`
+    );
+  }, [jobs, settings, runJobs]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, selected: !j.selected } : j)));
+  }, []);
+
+  const selectFailed = useCallback(() => {
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.status === "error" || j.status === "skipped" ? { ...j, selected: true } : j
+      )
+    );
+  }, []);
+
+  const deselectAll = useCallback(() => {
+    setJobs((prev) => prev.map((j) => (j.selected ? { ...j, selected: false } : j)));
+  }, []);
+
+  const retrySelected = useCallback(
+    (provider: Provider) => {
+      const chosen = jobs.filter((j) => j.selected);
+      if (!chosen.length || running) return;
+      // fresh copies with the cutout cache invalidated: retry must re-segment.
+      // With the local provider each image alternates its own model variant.
+      const fresh: JobState[] = chosen.map((j) => ({
+        ...j,
+        selected: false,
+        warning: null,
+        cutout: null,
+        cutoutKey: null,
+        retryModel:
+          provider === "local"
+            ? ((j.localModel === "small" ? "medium" : "small") as LocalModel)
+            : null,
+      }));
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.selected
+            ? { ...j, selected: false, warning: null, cutout: null, cutoutKey: null }
+            : j
+        )
       );
-      addLog("info", "Batch completato");
-    } catch (err) {
-      addLog("error", err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }, [jobs, settings, addLog, patchJob]);
+      const providerNames: Record<Provider, string> = {
+        local: "modello locale (variante alternativa per ciascuna)",
+        localhq: "Locale HQ (BiRefNet)",
+        photoroom: "PhotoRoom",
+        removebg: "remove.bg",
+      };
+      const label = `Riprovo ${fresh.length} immagini con ${providerNames[provider]}`;
+      void runJobs(fresh, { ...settings, provider }, label);
+    },
+    [jobs, running, settings, runJobs]
+  );
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
     addLog("warn", "Interruzione richiesta: le immagini in corso vengono fermate");
   }, [addLog]);
+
+  const saveEditedCutout = useCallback(
+    async (id: string, cutout: Blob) => {
+      const job = jobs.find((j) => j.id === id);
+      setEditingId(null);
+      if (!job) return;
+      try {
+        const composed = await compositeCutout(cutout, settings);
+        patchJob(id, {
+          cutout,
+          cutoutKey: job.cutoutKey ? `${job.cutoutKey}+edit` : "manual-edit",
+          warning: null,
+          selected: false,
+          status: "done",
+          result: composed.blob,
+          width: composed.width,
+          height: composed.height,
+          error: null,
+        });
+        addLog("info", `${job.name}: ritocco manuale applicato`);
+      } catch (err) {
+        addLog("error", `${job.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+    [jobs, settings, patchJob, addLog]
+  );
 
   const removeJob = useCallback((id: string) => {
     setJobs((prev) => {
@@ -244,8 +358,21 @@ export default function Processor() {
 
   const doneCount = jobs.filter((j) => j.status === "done").length;
   const failedCount = jobs.filter((j) => j.status === "error" || j.status === "skipped").length;
-  const canStart = jobs.length > 0 && !running && !importing && isValidHex(settings.backgroundColor);
+  const selectedCount = jobs.filter((j) => j.selected).length;
+  const pendingCount = jobs.length - doneCount;
+  const canRun = !running && !importing && isValidHex(settings.backgroundColor);
   const percent = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  // defective cost estimate: only the pending images that will REALLY call the
+  // paid API (cached cutouts and the local model cost nothing)
+  const targetKey = cutoutKeyFor(settings);
+  const apiCallCount =
+    PROVIDER_PRICES[settings.provider] === 0
+      ? 0
+      : jobs.filter(
+          (j) => j.status !== "done" && !(j.cutout && j.cutoutKey === targetKey)
+        ).length;
+  const estimatedCost = apiCallCount * PROVIDER_PRICES[settings.provider];
 
   return (
     <div className="layout">
@@ -311,12 +438,38 @@ export default function Processor() {
         {jobs.length > 0 && (
           <section className="panel">
             <div className="run-row">
-              <button type="button" className="btn primary" disabled={!canStart} onClick={() => void start()}>
-                {running ? "In corso…" : `Processa ${jobs.length} immagini`}
+              <button
+                type="button"
+                className="btn primary"
+                disabled={!canRun || pendingCount === 0}
+                onClick={startPending}
+              >
+                {running ? "In corso…" : `Processa ${pendingCount} immagini`}
               </button>
+              {!running && apiCallCount > 0 && (
+                <span className="cost-estimate" title="Solo le immagini che chiameranno davvero l'API: scontorni in cache e modello locale non costano nulla">
+                  ≈ ${estimatedCost.toFixed(2)} ({apiCallCount} scontorni con {settings.provider === "photoroom" ? "PhotoRoom" : "remove.bg"})
+                </span>
+              )}
+              {doneCount > 0 && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!canRun}
+                  title="Ricompone tutte le immagini col colore/formato attuale riusando gli scontorni: nessuna nuova chiamata"
+                  onClick={reapplyAll}
+                >
+                  Riapplica colore/formato a tutte
+                </button>
+              )}
               {running && (
                 <button type="button" className="btn danger" onClick={stop}>
                   Ferma
+                </button>
+              )}
+              {failedCount > 0 && !running && (
+                <button type="button" className="btn subtle" onClick={selectFailed}>
+                  Seleziona non riuscite ({failedCount})
                 </button>
               )}
               <button
@@ -355,17 +508,71 @@ export default function Processor() {
             )}
             <div className="job-grid">
               {jobs.map((job) => (
-                <JobCard key={job.id} job={job} disabled={running} onRemove={removeJob} />
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  disabled={running}
+                  onRemove={removeJob}
+                  onToggleSelect={toggleSelect}
+                  onEdit={setEditingId}
+                />
               ))}
             </div>
           </section>
         )}
 
+        {selectedCount > 0 && !running && (
+          <div className="action-bar" role="toolbar" aria-label="Azioni sulle immagini selezionate">
+            <span className="action-count">
+              {selectedCount} {selectedCount === 1 ? "selezionata" : "selezionate"} — riprova scontorno con:
+            </span>
+            <button type="button" className="btn" onClick={() => retrySelected("local")}>
+              Locale — variante alternativa (gratis)
+            </button>
+            <button type="button" className="btn" onClick={() => retrySelected("localhq")}>
+              Locale HQ (gratis)
+            </button>
+            <button type="button" className="btn" onClick={() => retrySelected("photoroom")}>
+              PhotoRoom ≈ ${(selectedCount * PROVIDER_PRICES.photoroom).toFixed(2)}
+            </button>
+            <button type="button" className="btn" onClick={() => retrySelected("removebg")}>
+              remove.bg ≈ ${(selectedCount * PROVIDER_PRICES.removebg).toFixed(2)}
+            </button>
+            <button type="button" className="btn subtle" onClick={deselectAll}>
+              Deseleziona
+            </button>
+          </div>
+        )}
+
         <LogPanel entries={log} />
+
+        {editingId && (() => {
+          const job = jobs.find((j) => j.id === editingId);
+          if (!job?.cutout) return null;
+          return (
+            <CutoutEditor
+              job={job}
+              settings={settings}
+              onSave={(id, cutout) => void saveEditedCutout(id, cutout)}
+              onClose={() => setEditingId(null)}
+            />
+          );
+        })()}
       </main>
 
       <aside>
-        <SettingsPanel settings={settings} disabled={running} onChange={updateSettings} />
+        <SettingsPanel
+          settings={settings}
+          serverConfig={serverConfig}
+          disabled={running}
+          onChange={updateSettings}
+        />
+        <ApiKeysPanel
+          settings={settings}
+          serverConfig={serverConfig}
+          disabled={running}
+          onChange={updateSettings}
+        />
       </aside>
     </div>
   );
