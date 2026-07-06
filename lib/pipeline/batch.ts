@@ -46,8 +46,11 @@ export async function runBatch(
   cb: BatchCallbacks,
   signal: AbortSignal
 ): Promise<void> {
-  // the in-browser model gains nothing from parallel inference; API providers do
-  const concurrency = settings.provider === "local" ? 1 : Math.max(1, settings.parallelJobs);
+  // the in-browser models gain nothing from parallel inference; API providers do
+  const concurrency =
+    settings.provider === "local" || settings.provider === "localhq"
+      ? 1
+      : Math.max(1, settings.parallelJobs);
   const queue = [...jobs];
   const total = jobs.length;
   let done = 0;
@@ -177,6 +180,6 @@ export async function runBatch(
 
   await Promise.all(Array.from({ length: concurrency }, worker));
   if (fatal) {
-    throw new Error("Batch interrotto: chiave API non valida o crediti esauriti");
+    throw new Error("Batch interrotto per un errore bloccante: dettagli nel log qui sopra");
   }
 }

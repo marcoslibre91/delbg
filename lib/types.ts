@@ -1,4 +1,4 @@
-export type Provider = "local" | "photoroom" | "removebg";
+export type Provider = "local" | "localhq" | "photoroom" | "removebg";
 
 /** Variant of the in-browser model; "medium" is the default quality. */
 export type LocalModel = "small" | "medium";
@@ -87,6 +87,7 @@ export interface ServerConfig {
 
 export const PROVIDER_PRICES: Record<Provider, number> = {
   local: 0,
+  localhq: 0,
   photoroom: 0.02,
   removebg: 0.2,
 };

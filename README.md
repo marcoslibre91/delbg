@@ -5,6 +5,7 @@ Web app per il processing batch di foto prodotto e-commerce: rimozione dello sfo
 - **Sorgenti**: file locali (drag & drop) o selezione diretta da **Google Drive** (galleria con miniature, selezione multipla, Drive condivisi)
 - **Formati supportati**: HEIC, JPG/JPEG, PNG, WEBP (con orientamento EXIF corretto)
 - **Rimozione sfondo**, a scelta:
+  - **Locale HQ (gratis, sperimentale)** — BiRefNet nel browser via transformers.js: qualità superiore, ~150 MB scaricati da Hugging Face al primo uso, accelerato WebGPU
   - **Locale (gratis)** — modello AI che gira nel browser, nessun costo e nessun upload a terzi
   - **PhotoRoom** (~$0,02/immagine) — qualità e-commerce
   - **remove.bg** (~$0,20/immagine) — per i casi difficili

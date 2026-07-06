@@ -247,10 +247,13 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
             : j
         )
       );
-      const label =
-        provider === "local"
-          ? `Riprovo ${fresh.length} immagini col modello locale (variante alternativa per ciascuna)`
-          : `Riprovo ${fresh.length} immagini con ${provider === "photoroom" ? "PhotoRoom" : "remove.bg"}`;
+      const providerNames: Record<Provider, string> = {
+        local: "modello locale (variante alternativa per ciascuna)",
+        localhq: "Locale HQ (BiRefNet)",
+        photoroom: "PhotoRoom",
+        removebg: "remove.bg",
+      };
+      const label = `Riprovo ${fresh.length} immagini con ${providerNames[provider]}`;
       void runJobs(fresh, { ...settings, provider }, label);
     },
     [jobs, running, settings, runJobs]
@@ -364,7 +367,7 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
   // paid API (cached cutouts and the local model cost nothing)
   const targetKey = cutoutKeyFor(settings);
   const apiCallCount =
-    settings.provider === "local"
+    PROVIDER_PRICES[settings.provider] === 0
       ? 0
       : jobs.filter(
           (j) => j.status !== "done" && !(j.cutout && j.cutoutKey === targetKey)
@@ -525,6 +528,9 @@ export default function Processor({ serverConfig }: { serverConfig: ServerConfig
             </span>
             <button type="button" className="btn" onClick={() => retrySelected("local")}>
               Locale — variante alternativa (gratis)
+            </button>
+            <button type="button" className="btn" onClick={() => retrySelected("localhq")}>
+              Locale HQ (gratis)
             </button>
             <button type="button" className="btn" onClick={() => retrySelected("photoroom")}>
               PhotoRoom ≈ ${(selectedCount * PROVIDER_PRICES.photoroom).toFixed(2)}

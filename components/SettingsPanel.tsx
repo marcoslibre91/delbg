@@ -5,6 +5,11 @@ import { COLOR_PRESETS, isValidHex } from "@/lib/settings";
 
 const PROVIDERS: Array<{ id: Provider; label: string; hint: string }> = [
   { id: "local", label: "Locale (gratis)", hint: "Modello AI nel browser, nessun costo e nessun upload" },
+  {
+    id: "localhq",
+    label: "Locale HQ (gratis, sperimentale)",
+    hint: "BiRefNet nel browser: qualità superiore, ~150 MB al primo uso, meglio con GPU (Chrome/Edge recenti)",
+  },
   { id: "photoroom", label: "PhotoRoom", hint: "~$0,02 a immagine, qualità e-commerce" },
   { id: "removebg", label: "remove.bg", hint: "~$0,20 a immagine, per casi difficili" },
 ];
@@ -20,6 +25,7 @@ export default function SettingsPanel({ settings, serverConfig, disabled, onChan
   const serverKeys = serverConfig?.serverKeys ?? { photoroom: false, removebg: false };
   const keyReady: Record<Provider, boolean> = {
     local: true,
+    localhq: true,
     photoroom: serverKeys.photoroom || Boolean(settings.photoroomKey.trim()),
     removebg: serverKeys.removebg || Boolean(settings.removebgKey.trim()),
   };
@@ -41,7 +47,7 @@ export default function SettingsPanel({ settings, serverConfig, disabled, onChan
               <span>
                 <strong>
                   {p.label}
-                  {p.id !== "local" && (
+                  {(p.id === "photoroom" || p.id === "removebg") && (
                     <span className={`key-badge${keyReady[p.id] ? " ready" : ""}`}>
                       {keyReady[p.id] ? "🔑 chiave attiva" : "chiave mancante"}
                     </span>
