@@ -35,19 +35,36 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160);
 }
 
+async function loadWith(device: "webgpu" | "wasm"): Promise<LoadedModel> {
+  const { AutoModel, AutoProcessor, RawImage } = await import("@huggingface/transformers");
+  const model = await AutoModel.from_pretrained(MODEL_ID, {
+    device,
+    // fp16 exists in the repo and runs on GPU; the CPU path uses fp32,
+    // the variant documented on the model card (q8/quantized does NOT
+    // exist for this model and 404s)
+    dtype: device === "webgpu" ? "fp16" : "fp32",
+  });
+  const processor = await AutoProcessor.from_pretrained(MODEL_ID, {});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { model, processor, RawImage } as any as LoadedModel;
+}
+
 async function loadModel(): Promise<LoadedModel> {
   if (!loader) {
-    const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator && !forceWasm;
-    activeDevice = hasWebGPU ? "webgpu" : "wasm";
     loader = (async () => {
-      const { AutoModel, AutoProcessor, RawImage } = await import("@huggingface/transformers");
-      const model = await AutoModel.from_pretrained(MODEL_ID, {
-        device: activeDevice,
-        dtype: activeDevice === "webgpu" ? "fp16" : "q8",
-      });
-      const processor = await AutoProcessor.from_pretrained(MODEL_ID, {});
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return { model, processor, RawImage } as any as LoadedModel;
+      const wantGpu = typeof navigator !== "undefined" && "gpu" in navigator && !forceWasm;
+      if (wantGpu) {
+        try {
+          const lib = await loadWith("webgpu");
+          activeDevice = "webgpu";
+          return lib;
+        } catch {
+          // GPU load failed (driver, adapter, memory): fall back to CPU
+        }
+      }
+      const lib = await loadWith("wasm");
+      activeDevice = "wasm";
+      return lib;
     })().catch((err) => {
       loader = null; // allow a retry on the next batch
       throw err;
