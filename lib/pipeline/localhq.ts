@@ -4,8 +4,11 @@
  * markedly better than isnet on shaded interiors and hand-held products.
  *
  * Runs via transformers.js: WebGPU with fp16 when available, WASM fallback
- * otherwise (much slower). Model weights (~100-200 MB) are downloaded from
- * the Hugging Face hub on first use and cached by the browser.
+ * otherwise. Some GPU/driver combinations fail at inference time on certain
+ * image sizes ("Too many storage buffers in shader"): in that case the image
+ * is transparently retried on WASM and the session stays on WASM (slower
+ * but reliable). Model weights (~100-200 MB) are downloaded from the
+ * Hugging Face hub on first use and cached by the browser.
  */
 
 import { ProviderError } from "./providers";
@@ -24,15 +27,23 @@ interface LoadedModel {
 }
 
 let loader: Promise<LoadedModel> | null = null;
+let activeDevice: "webgpu" | "wasm" = "wasm";
+/** Once a GPU inference fails, the whole session falls back to WASM. */
+let forceWasm = false;
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160);
+}
 
 async function loadModel(): Promise<LoadedModel> {
   if (!loader) {
+    const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator && !forceWasm;
+    activeDevice = hasWebGPU ? "webgpu" : "wasm";
     loader = (async () => {
       const { AutoModel, AutoProcessor, RawImage } = await import("@huggingface/transformers");
-      const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator;
       const model = await AutoModel.from_pretrained(MODEL_ID, {
-        device: hasWebGPU ? "webgpu" : "wasm",
-        dtype: hasWebGPU ? "fp16" : "q8",
+        device: activeDevice,
+        dtype: activeDevice === "webgpu" ? "fp16" : "q8",
       });
       const processor = await AutoProcessor.from_pretrained(MODEL_ID, {});
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,13 +56,13 @@ async function loadModel(): Promise<LoadedModel> {
   return loader;
 }
 
-export async function removeBackgroundHQ(image: Blob): Promise<Blob> {
+async function runInference(image: Blob): Promise<Blob> {
   let lib: LoadedModel;
   try {
     lib = await loadModel();
   } catch (err) {
     throw new ProviderError(
-      `Modello Locale HQ non caricato (${err instanceof Error ? err.message.slice(0, 120) : "errore"}). ` +
+      `Modello Locale HQ non caricato (${errText(err)}). ` +
         "Serve una connessione a huggingface.co per il primo download (~150 MB) e un browser recente.",
       "fatal"
     );
@@ -94,5 +105,27 @@ export async function removeBackgroundHQ(image: Blob): Promise<Blob> {
     });
   } finally {
     bitmap.close();
+  }
+}
+
+export async function removeBackgroundHQ(image: Blob): Promise<Blob> {
+  try {
+    return await runInference(image);
+  } catch (err) {
+    if (err instanceof ProviderError) throw err;
+    if (activeDevice === "webgpu") {
+      // GPU shader failures (e.g. "Too many storage buffers in shader")
+      // depend on the image size: retry this image on WASM and keep the
+      // session on WASM from here on.
+      forceWasm = true;
+      loader = null;
+      try {
+        return await runInference(image);
+      } catch (retryErr) {
+        if (retryErr instanceof ProviderError) throw retryErr;
+        throw new ProviderError(`Locale HQ fallito anche su CPU: ${errText(retryErr)}`, "skip");
+      }
+    }
+    throw new ProviderError(`Locale HQ: ${errText(err)}`, "skip");
   }
 }
