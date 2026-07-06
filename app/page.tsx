@@ -1,4 +1,5 @@
 import ProcessorLoader from "@/components/ProcessorLoader";
+import VersionBadge from "@/components/VersionBadge";
 
 export default function Home() {
   return (
@@ -11,6 +12,7 @@ export default function Home() {
         </p>
       </header>
       <ProcessorLoader />
+      <VersionBadge />
     </>
   );
 }

@@ -558,6 +558,24 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+/* ---- version badge ---- */
+
+.version-badge {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  z-index: 40;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ---- cutout editor ---- */
 
 .editor-overlay {
